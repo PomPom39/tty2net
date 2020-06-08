@@ -1,0 +1,34 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../include/s2e_ess.c
+s2e_ess.h
+../include/s2e_ess.h
+
+../include/s2e_ess.h
+sys/socket.h
+-
+string.h
+-
+arpa/inet.h
+-
+
+/home/mahesh/Desktop/git_projects/Serial2ethernet/src/main.c
+stdint.h
+-
+stdio.h
+-
+fcntl.h
+-
+unistd.h
+-
+s2e_ess.h
+/home/mahesh/Desktop/git_projects/Serial2ethernet/src/s2e_ess.h
+s2e_ess.c
+/home/mahesh/Desktop/git_projects/Serial2ethernet/src/s2e_ess.c
+
