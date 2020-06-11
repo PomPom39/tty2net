@@ -13,6 +13,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <termios.h>
+#include <sys/ioctl.h>
+
 #define NET_MODE_SERVER 1
 #define NET_MODE_CLIENT 2
 #define NET_PROTO_UDP 0
@@ -20,10 +23,14 @@
 
 
 struct s2e_conf {
-	char tty_device[16];
-	long tty_baudrate;
-	int tty_parity;
-	int tty_stopbit;
+	char tty_device[16];			/* Device Name*/
+	long tty_baudrate;				/* Baudrate*/
+	int tty_isBlockingMode;
+	int tty_parity;					/* parity <0:none, 1:odd ,2:even> */
+	int tty_stopbit;				/* stop bit <1:1 stop bit, 2:2 stop bits> */
+	int tty_length;					/* Bit length < 5:5 bits, 6:6 bits, 7:7 bits, 8:8 bits > */
+	int tty_flow;					/* Flow Control  < 0: No Flow, 1: Software , 2: Hardware > */
+	int tty_tsize;
 	int net_mode;
 	int net_proto;
 	int net_port;
