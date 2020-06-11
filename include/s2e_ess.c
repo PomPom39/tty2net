@@ -112,14 +112,95 @@ int net_write(struct s2e_conf *conf, char *buffer, int size) {
 
 int tty_open(struct s2e_conf *conf) {
 	int fd;
-	if ((fd = open(conf->tty_device, O_RDWR)) < 0) {
+	int ret;
+	struct termios serialSettings;
+	conf->tty_fd = -1;
+	if ((fd = open(conf->tty_device, O_RDWR | O_NOCTTY | O_NONBLOCK)) < 0) {
 		perror("\n tty_open: open failed");
 		close(fd);
-		conf->tty_fd = -1;
 		return -1;
 
 	}
 	printf("\n tty_open: open succesfull");
+
+	/*Get default serial attributes*/
+	if ((ret = ioctl(fd, TCGETS, &serialSettings)) < 0) {
+		perror("\n tty_open: get default attributes failed");
+		close(fd);
+		conf->tty_fd = -1;
+		return -1;
+	}
+
+
+	serialSettings.c_cflag = (CLOCAL | CREAD);
+	serialSettings.c_iflag = (IGNPAR);
+	serialSettings.c_oflag = 0;
+	/*Setting the Baudrate*/
+	switch (conf->tty_baudrate) {
+	case 300:		serialSettings.c_cflag |= B300; 					break;
+	case 600:		serialSettings.c_cflag |= B600;						break;
+	case 1200:		serialSettings.c_cflag |= B1200;					break;
+	case 2400:		serialSettings.c_cflag |= B2400;					break;
+	case 4800:		serialSettings.c_cflag |= B4800;					break;
+	case 9600:		serialSettings.c_cflag |= B9600;					break;
+	case 19200:		serialSettings.c_cflag |= B19200;					break;
+	case 38400:		serialSettings.c_cflag |= B38400;					break;
+	case 57600:		serialSettings.c_cflag |= B57600;					break;
+	case 115200:	serialSettings.c_cflag |= B115200;					break;
+	case 230400:	serialSettings.c_cflag |= B230400;					break;
+	case 460800:	serialSettings.c_cflag |= B460800;					break;
+	case 921600:	serialSettings.c_cflag |= B921600;					break;
+	default:		serialSettings.c_cflag |= B115200;					break;		/*By default use 115200 as baud rate*/
+	}
+
+	/*Setting the parity*/
+	switch(conf->tty_parity) {
+	case 1:			serialSettings.c_cflag |= (PARENB | PARODD);		break;
+	case 2:			serialSettings.c_cflag |= PARENB;					break;
+	case 0:
+	default:		serialSettings.c_cflag &= ~(PARENB | PARODD);		break;
+	}
+
+	/*Configuring stop bit*/
+	switch(conf->tty_stopbit) {
+	case 2:			serialSettings.c_cflag |= CSTOPB;					break;
+	case 1:
+	default:		serialSettings.c_cflag &= ~CSTOPB;					break;
+	}
+
+
+	/*Configuring bit length */
+	switch(conf->tty_length) {
+	case 5:			serialSettings.c_cflag |= CS5;						break;
+	case 6:			serialSettings.c_cflag |= CS6;						break;
+	case 7:			serialSettings.c_cflag |= CS7;						break;
+	case 8:
+	default:		serialSettings.c_cflag |= CS8;						break;
+	}
+
+	/*Configuring flow control */
+	switch(conf->tty_flow) {
+	case 1:			serialSettings.c_iflag |= (IXON | IXOFF | IXANY);	break;
+	case 2:			serialSettings.c_cflag |= CRTSCTS;					break;
+	case 0:
+	default:		serialSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
+					serialSettings.c_cflag &= ~CRTSCTS;					break;
+	}
+
+	/*Desiable raw canonical data, Disable echo, Disable sig inerrupt */
+	serialSettings.c_lflag &= !(ICANON | ECHO | ISIG);
+
+
+	serialSettings.c_cc[VMIN] = 1;			/* read Waits (blocks) for a minimum of 1 byte */
+	serialSettings.c_cc[VTIME] = 0;			/* No timeout*/
+
+
+
+	if ((ret = ioctl(fd, TCSETS, &serialSettings)) , 0) {
+		printf("\n %s: Setting serial attributes failed");
+		fd = -1;
+		return -1;
+	}
 	conf->tty_fd = fd;
 	return 0;
 }
