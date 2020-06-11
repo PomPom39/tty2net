@@ -45,7 +45,7 @@
 struct s2e_conf s2e;
 
 fd_set READSET, WRITESET;
-char testBuff[256];
+char netBuff[256];
 char ttyBuff[256];
 
 struct timeval timeout;
@@ -58,9 +58,14 @@ int main(void) {
         int max_fd;
         int tty_write_size = 0;
         int net_write_size = 0;
+        int net_write_pos = 0;
+        int net_write_force = 0;
         int tty_write_pos = 0;
         int tty_read_pos = 0;
+        int tty_delim_flag = 0;
 
+
+        int tty_delim_pos;
         timeout.tv_sec = 10;
         timeout.tv_usec = 0;
         s2e.sock_fd = -1;
@@ -69,7 +74,15 @@ int main(void) {
         s2e.net_port = 12345;
         s2e.net_mode = NET_MODE_SERVER;
         s2e.net_proto = NET_PROTO_TCP;
+
+
+        s2e.tty_baudrate = 115200;
         strcpy(s2e.tty_device, TTY_DEVICE);
+
+
+        s2e.net_buffsz = 256;
+        s2e.tty_buffsz = 256;
+        s2e.tty_tsize = 8;
 
     	if (s2e.sock_fd < 0) {
     		//fprint(lp, "\n opening socket (closed)");
@@ -80,6 +93,9 @@ int main(void) {
     			//continue;
     		}
     	}
+
+    	net_write_pos = 0;
+    	net_write_size = s2e.tty_tsize;
 
         while(1) {
 
@@ -97,18 +113,14 @@ int main(void) {
 				FD_ZERO(&READSET);
 				FD_ZERO(&WRITESET);
 
-				
-				
-				
-				
 				if (tty_write_size == 0)
 					FD_SET(sock_fd, &READSET);
 				else
 					FD_SET(tty_fd, &WRITESET);
 
-				if (net_write_size == 0)
+				if (net_write_pos < net_write_size)
 					FD_SET(tty_fd, &READSET);
-				else
+				if ((net_write_size <= net_write_pos) || net_write_force)
 					FD_SET(sock_fd, &WRITESET);
 
 				printf("\n Waiting for connection");
@@ -119,11 +131,14 @@ int main(void) {
 				if (ret < 0) {
 					perror("\n main: select error");
 					net_close(&s2e);
+					tty_close(&s2e);
 					continue;
 				}
 				else if(ret == 0) {
 					perror("\n main: timed out ");
 					timeout.tv_sec = 10; //resetting the timer
+					if (net_write_pos != 0)
+						net_write_force = 1;
 					//net_close(&s2e);
 					continue;
 				}
@@ -132,17 +147,19 @@ int main(void) {
 				if (tty_write_size) {
 					//Write to tty
 					if (FD_ISSET(s2e.tty_fd, &WRITESET)) {
-						if ((ret = tty_write(&s2e, testBuff, strlen(testBuff))) < 0) {
+						if ((ret = tty_write(&s2e, &netBuff[tty_write_pos], tty_write_size - tty_write_pos)) < 0) {
 							tty_close(&s2e);
 							continue;
 						}
-						tty_write_size = 0;
+						tty_write_pos +=ret;
+						if(tty_write_pos >= tty_write_size)
+							tty_write_size = 0;
 					}
 				}
 				else {
 					//Read from network
 					if(FD_ISSET(s2e.sock_fd, &READSET)) {
-						if ((ret = net_read(&s2e, testBuff, 256)) < 0) {
+						if ((ret = net_read(&s2e, netBuff, 256 )) < 0) {
 							net_close(&s2e);
 							continue;
 						}
@@ -154,30 +171,30 @@ int main(void) {
 				}
 
 
-				if(net_write_size) {
+				if(net_write_size <= net_write_pos|| net_write_force) {
 					//Write to network
 					if (FD_ISSET(s2e.sock_fd, &WRITESET)) {
 						if((ret = net_write(&s2e, ttyBuff, strlen(ttyBuff))) < 0) {
 							perror("\n linuxmain: send error");
+
 							continue;
 						}
-						net_write_size = 0;
+						net_write_force = 0;
+						net_write_pos = 0;
 					}
 				}
 				else {
 					//Read from tty
 					if (FD_ISSET(s2e.tty_fd, &READSET)) {
-						if ((ret = tty_read(&s2e, ttyBuff, 256)) < 0) {
+						if ((ret = tty_read(&s2e, &ttyBuff[net_write_pos], net_write_size - net_write_pos)) < 0) {
 							tty_close(&s2e);
 							continue;
 						}
-						net_write_size = ret;
-						printf("[TTY] read byte s= %d", net_write_size);
+						net_write_pos += ret;
+						printf("[TTY] read byte s= %d", ret);
 					}
 
 				}
-
-
 
 				//printf("\n Socket closed");
 				//net_close(&s2e);
