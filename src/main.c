@@ -40,14 +40,21 @@
 #include "s2e_ess.h"
 #include "s2e_ess.c"
 
+
+
+//#define BUFFSIZE 256
+#define BUFFSIZE 256
 #define TTY_DEVICE "/dev/tnt0"
 void int_sigHandler();
+
+
+
 
 struct s2e_conf s2e;
 
 fd_set READSET, WRITESET;
-char netBuff[256];
-char ttyBuff[256];
+char netBuff[BUFFSIZE];
+char ttyBuff[BUFFSIZE];
 
 struct timeval timeout;
 
@@ -74,22 +81,26 @@ int main(void) {
         s2e.sock_fd = -1;
         s2e.tty_fd = -1;
 
-        s2e.net_port = 60000;
-        s2e.net_mode = NET_MODE_SERVER;
-        s2e.net_proto = NET_PROTO_TCP;
+        s2e.net_port = 60001;
+        //s2e.net_mode = NET_MODE_SERVER;
+        s2e.net_mode = NET_MODE_CLIENT;
+        //s2e.net_proto = NET_PROTO_TCP;
+        s2e.net_proto = NET_PROTO_UDP;
+
 
 
         s2e.tty_baudrate = 115200;
         strcpy(s2e.tty_device, TTY_DEVICE);
+        strcpy(s2e.net_remote_ip, "127.0.0.1");
 
 
-        s2e.net_buffsz = 256;
-        s2e.tty_buffsz = 256;
+        s2e.net_buffsz = BUFFSIZE;
+        s2e.tty_buffsz = BUFFSIZE;
         s2e.tty_tsize = s2e.net_buffsz;
         s2e.tty_buffer = ttyBuff;
         s2e.net_buffer = netBuff;
-        s2e.tty_delim_code[0] = (int)'\r';
-        s2e.tty_delim_len = 1;
+        s2e.tty_delim_code[0] = (int)'\n';
+        s2e.tty_delim_len = 0;
 
     	net_write_pos = 0;
     	net_write_size = s2e.tty_tsize;
@@ -106,8 +117,9 @@ int main(void) {
         	    			sleep(1);
         	    			continue;
         	    		}
-        	    		net_tcp_conn = 0;
+        	    		net_tcp_conn = 1; //Changed to 1 for UDP
         	    	}
+
 
         	if (s2e.tty_fd < 0) {
         		if((ret = tty_open(&s2e)) < 0) {
@@ -138,7 +150,7 @@ int main(void) {
 			//fflush(stdout);
 			max_fd = (s2e.tty_fd > s2e.sock_fd) ? tty_fd : sock_fd;
 
-			ret = select(max_fd + 1, &READSET, &WRITESET, NULL, &timeout);
+			ret = select(max_fd + 1, &READSET, &WRITESET, NULL, &timeout/*NULL*/);
 
 			if (ret < 0) {
 				perror("\n main: select error");
@@ -151,7 +163,8 @@ int main(void) {
 				timeout.tv_sec = 10; //resetting the timer
 				if (net_write_pos != 0)
 					net_write_force = 1;
-				//net_close(&s2e);
+				if (s2e.net_proto == NET_PROTO_UDP)
+					net_close(&s2e);
 				continue;
 			}
 
@@ -245,7 +258,7 @@ int main(void) {
 
 
 
-				timeout.tv_sec = 10; //resetting timer
+				timeout.tv_sec = 5; //resetting timer
 
         }
 

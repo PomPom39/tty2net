@@ -8,7 +8,7 @@
 #ifndef S2E_ESS_H_
 #define S2E_ESS_H_
 
-#undef DEBUG
+#define DEBUG
 
 
 #ifdef DEBUG
@@ -17,7 +17,7 @@
 #define printdbg(x) asm("nop");
 #endif
 
-
+#define MAXLINE 1024 
 
 
 
@@ -49,12 +49,15 @@ struct s2e_conf {
 	int net_mode;
 	int net_proto;
 	int net_port;
+	char net_remote_ip[20];
 	int tty_fd;
 	int sock_fd;
 	char *tty_buffer;
 	int tty_buffsz;
 	char *net_buffer;
 	int net_buffsz;
+
+	struct sockaddr_in cliaddr;
 
 };
 
