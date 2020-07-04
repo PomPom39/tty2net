@@ -8,6 +8,19 @@
 #ifndef S2E_ESS_H_
 #define S2E_ESS_H_
 
+#define DEBUG
+
+
+#ifdef DEBUG
+#define printdbg(x) printf x
+#else
+#define printdbg(x) asm("nop");
+#endif
+
+#define MAXLINE 1024 
+
+
+
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <string.h>
@@ -30,16 +43,21 @@ struct s2e_conf {
 	int tty_stopbit;				/* stop bit <1:1 stop bit, 2:2 stop bits> */
 	int tty_length;					/* Bit length < 5:5 bits, 6:6 bits, 7:7 bits, 8:8 bits > */
 	int tty_flow;					/* Flow Control  < 0: No Flow, 1: Software , 2: Hardware > */
-	int tty_tsize;
+	int tty_tsize;					/* Trigger size if the buffer in tty becomes full */
+	char tty_delim_code[3];			/* Delimiter code for transmission trigger */
+	char tty_delim_len;				/* Length of delimiter code */
 	int net_mode;
 	int net_proto;
 	int net_port;
+	char net_remote_ip[20];
 	int tty_fd;
 	int sock_fd;
-	char tty_buffer[256];
+	char *tty_buffer;
 	int tty_buffsz;
-	char net_buffer[256];
+	char *net_buffer;
 	int net_buffsz;
+
+	struct sockaddr_in cliaddr;
 
 };
 
@@ -53,5 +71,7 @@ int tty_open(struct s2e_conf *conf);
 int tty_close(struct s2e_conf *conf);
 int tty_write(struct s2e_conf *conf, char *buffer, int size);
 int tty_read(struct s2e_conf *conf, char *buffer, int size);
+
+
 
 #endif /* S2E_ESS_H_ */

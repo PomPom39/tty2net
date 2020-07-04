@@ -35,18 +35,26 @@
 #include <sys/socket.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "s2e_ess.h"
+#include "s2e_ess.c"
 
 
+
+//#define BUFFSIZE 256
+#define BUFFSIZE 256
 #define TTY_DEVICE "/dev/tnt0"
+void int_sigHandler();
+
+
 
 
 struct s2e_conf s2e;
 
 fd_set READSET, WRITESET;
-char netBuff[256];
-char ttyBuff[256];
+char netBuff[BUFFSIZE];
+char ttyBuff[BUFFSIZE];
 
 struct timeval timeout;
 
@@ -62,42 +70,56 @@ int main(void) {
         int net_write_force = 0;
         int tty_write_pos = 0;
         int tty_read_pos = 0;
-        int tty_delim_flag = 0;
+        int tty_delim_pos = 0;
+        char tty_delim_len = 0;
+        int net_tcp_conn = 1;
 
-
-        int tty_delim_pos;
-        timeout.tv_sec = 10;
+        timeout.tv_sec = 10;			/*Giving a ten second timeout just in case */
         timeout.tv_usec = 0;
+
+
         s2e.sock_fd = -1;
         s2e.tty_fd = -1;
 
-        s2e.net_port = 12345;
-        s2e.net_mode = NET_MODE_SERVER;
-        s2e.net_proto = NET_PROTO_TCP;
+        s2e.net_port = 60001;
+        //s2e.net_mode = NET_MODE_SERVER;
+        s2e.net_mode = NET_MODE_CLIENT;
+        //s2e.net_proto = NET_PROTO_TCP;
+        s2e.net_proto = NET_PROTO_UDP;
+
 
 
         s2e.tty_baudrate = 115200;
         strcpy(s2e.tty_device, TTY_DEVICE);
+        strcpy(s2e.net_remote_ip, "127.0.0.1");
 
 
-        s2e.net_buffsz = 256;
-        s2e.tty_buffsz = 256;
-        s2e.tty_tsize = 8;
-
-    	if (s2e.sock_fd < 0) {
-    		//fprint(lp, "\n opening socket (closed)");
-    		if ((ret = net_open(&s2e)) < 0) {
-    			printf("\n Socket open failed. Retrying...");
-    			exit(1);
-    			//sleep(1);
-    			//continue;
-    		}
-    	}
+        s2e.net_buffsz = BUFFSIZE;
+        s2e.tty_buffsz = BUFFSIZE;
+        s2e.tty_tsize = s2e.net_buffsz;
+        s2e.tty_buffer = ttyBuff;
+        s2e.net_buffer = netBuff;
+        s2e.tty_delim_code[0] = (int)'\n';
+        s2e.tty_delim_len = 0;
 
     	net_write_pos = 0;
     	net_write_size = s2e.tty_tsize;
 
+
+    	signal(SIGINT, int_sigHandler);
+
         while(1) {
+
+        	if (s2e.sock_fd < 0 && net_tcp_conn == 1) {
+        	    		//fprint(lp, "\n opening socket (closed)");
+        	    		if ((ret = net_open(&s2e)) < 0) {
+        	    			printf("\n Socket open failed. Retrying...");
+        	    			sleep(1);
+        	    			continue;
+        	    		}
+        	    		net_tcp_conn = 1; //Changed to 1 for UDP
+        	    	}
+
 
         	if (s2e.tty_fd < 0) {
         		if((ret = tty_open(&s2e)) < 0) {
@@ -106,108 +128,149 @@ int main(void) {
         			continue;
         		}
         	}
+
         	tty_fd = s2e.tty_fd;
         	sock_fd = s2e.sock_fd;
 
 
-				FD_ZERO(&READSET);
-				FD_ZERO(&WRITESET);
+			FD_ZERO(&READSET);
+			FD_ZERO(&WRITESET);
 
-				if (tty_write_size == 0)
-					FD_SET(sock_fd, &READSET);
-				else
-					FD_SET(tty_fd, &WRITESET);
+			if (tty_write_size == 0)
+				FD_SET(sock_fd, &READSET);
+			else
+				FD_SET(tty_fd, &WRITESET);
 
-				if (net_write_pos < net_write_size)
-					FD_SET(tty_fd, &READSET);
-				if ((net_write_size <= net_write_pos) || net_write_force)
-					FD_SET(sock_fd, &WRITESET);
+			if (net_write_pos < net_write_size)
+				FD_SET(tty_fd, &READSET);
+			if ((net_write_size <= net_write_pos) || net_write_force)
+				FD_SET(sock_fd, &WRITESET);
 
-				printf("\n Waiting for connection");
-				fflush(stdout);
-				max_fd = (s2e.tty_fd > s2e.sock_fd) ? tty_fd : sock_fd;
+			//printf("\n Waiting for connection");
+			//fflush(stdout);
+			max_fd = (s2e.tty_fd > s2e.sock_fd) ? tty_fd : sock_fd;
 
-				ret = select(max_fd + 1, &READSET, &WRITESET, NULL, &timeout);
-				if (ret < 0) {
-					perror("\n main: select error");
+			ret = select(max_fd + 1, &READSET, &WRITESET, NULL, &timeout/*NULL*/);
+
+			if (ret < 0) {
+				perror("\n main: select error");
+				net_close(&s2e);
+				tty_close(&s2e);
+				continue;
+			}
+			else if(ret == 0) {
+				perror("\n main: timed out ");
+				timeout.tv_sec = 10; //resetting the timer
+				if (net_write_pos != 0)
+					net_write_force = 1;
+				if (s2e.net_proto == NET_PROTO_UDP)
 					net_close(&s2e);
-					tty_close(&s2e);
-					continue;
-				}
-				else if(ret == 0) {
-					perror("\n main: timed out ");
-					timeout.tv_sec = 10; //resetting the timer
-					if (net_write_pos != 0)
-						net_write_force = 1;
-					//net_close(&s2e);
-					continue;
-				}
+				continue;
+			}
 
 
-				if (tty_write_size) {
-					//Write to tty
-					if (FD_ISSET(s2e.tty_fd, &WRITESET)) {
-						if ((ret = tty_write(&s2e, &netBuff[tty_write_pos], tty_write_size - tty_write_pos)) < 0) {
-							tty_close(&s2e);
-							continue;
-						}
-						tty_write_pos +=ret;
-						if(tty_write_pos >= tty_write_size)
-							tty_write_size = 0;
+			if (tty_write_size) {
+				//Write to tty
+				if (FD_ISSET(s2e.tty_fd, &WRITESET)) {
+					if ((ret = tty_write(&s2e, &s2e.net_buffer[tty_write_pos], tty_write_size - tty_write_pos)) < 0) {
+						tty_close(&s2e);
+						continue;
 					}
+					tty_write_pos +=ret;
+					if(tty_write_pos >= tty_write_size)
+						tty_write_size = 0;
 				}
-				else {
-					//Read from network
-					if(FD_ISSET(s2e.sock_fd, &READSET)) {
-						if ((ret = net_read(&s2e, netBuff, 256 )) < 0) {
-							net_close(&s2e);
-							continue;
-						}
-
-						tty_write_size = ret;
-						printf("\n [NET]read bytes = %d", tty_write_size);
-						tty_write_pos = 0;
+			}
+			else {
+				//Read from network
+				if(FD_ISSET(s2e.sock_fd, &READSET)) {
+					if ((ret = net_read(&s2e, s2e.net_buffer, s2e.net_buffsz )) < 0) {
+						net_close(&s2e);
+						continue;
 					}
+
+					tty_write_size = ret;
+					//printf("\n [NET]read bytes = %d", tty_write_size);
+					tty_write_pos = 0;
 				}
+			}
 
 
-				if(net_write_size <= net_write_pos|| net_write_force) {
-					//Write to network
-					if (FD_ISSET(s2e.sock_fd, &WRITESET)) {
-						if((ret = net_write(&s2e, ttyBuff, strlen(ttyBuff))) < 0) {
+			if(net_write_size <= net_write_pos|| net_write_force) {
+				//Write to network
+				if (FD_ISSET(s2e.sock_fd, &WRITESET)) {
+
+					if (tty_delim_pos && tty_delim_pos < net_write_pos) {
+						if((ret = net_write(&s2e, s2e.tty_buffer, tty_delim_pos)) < 0) {
 							perror("\n linuxmain: send error");
-
 							continue;
 						}
+						//printf("\n sent %d bytes", ret);
+						/* Moving the rest of data from ttyBuff to the start position*/
+
+						memmove(ttyBuff, &s2e.tty_buffer[tty_delim_pos], net_write_pos - tty_delim_pos);
+
+						net_write_pos -= tty_delim_pos;
+						tty_delim_pos = 0;
 						net_write_force = 0;
-						net_write_pos = 0;
 					}
-				}
-				else {
-					//Read from tty
-					if (FD_ISSET(s2e.tty_fd, &READSET)) {
-						if ((ret = tty_read(&s2e, &ttyBuff[net_write_pos], net_write_size - net_write_pos)) < 0) {
-							tty_close(&s2e);
+					else {
+						if((ret = net_write(&s2e, s2e.tty_buffer, net_write_pos)) < 0) {
+							perror("\n linuxmain: send error");
 							continue;
 						}
-						net_write_pos += ret;
-						printf("[TTY] read byte s= %d", ret);
+						net_write_pos = 0;
+						tty_delim_pos = 0;
+						net_write_force = 0;
 					}
 
 				}
+			}
 
-				//printf("\n Socket closed");
-				//net_close(&s2e);
-				//tty_close(&s2e);
-				fflush(stdout);
-				timeout.tv_sec = 10; //resetting timer
+			if (net_write_pos < s2e.net_buffsz) {
+				//Read from tty
+				if (FD_ISSET(s2e.tty_fd, &READSET)) {
+					if ((ret = tty_read(&s2e, &s2e.tty_buffer[net_write_pos], net_write_size - net_write_pos)) < 0) {
+						tty_close(&s2e);
+						continue;
+					}
+					net_write_pos += ret;
+				//	printf("[TTY] read byte s= %d", ret);
+				}
+
+			}
+
+			/* Check delimiter in ttyBuff */
+			if (s2e.tty_delim_len && tty_delim_pos < net_write_pos) {
+				for (int i = tty_delim_pos; i < net_write_pos; i++) {
+					if(s2e.tty_delim_code[tty_delim_len++] == s2e.tty_buffer[i]) {
+						//printf("\n Delim found at %d, delim code is %d @%d", ttyBuff[i], s2e.tty_delim_code[tty_delim_len - 1], i);
+					//	fflush(stdout);
+						//exit(1);
+						net_write_force = 1;
+						tty_delim_len = 0;
+						break;
+					}
+					else
+						tty_delim_len = 0;
+				}
+			}
+
+
+
+				timeout.tv_sec = 5; //resetting timer
 
         }
 
         printf("\n Exit");
-        fflush(stdout);
-        fflush(stdout);
-
-
         return 0;
+}
+
+void int_sigHandler() {
+	printf("\n Interrupt issued. Closing all processes");
+	net_close(&s2e);
+	tty_close(&s2e);
+	printf("\n Exiting ....");
+	exit(1);
+
 }
